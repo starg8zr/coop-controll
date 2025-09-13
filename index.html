@@ -72,3 +72,107 @@
         <label>Control by:</label>
         <select id="relay3Sensor" onchange="updateRelayMode(3)"><option value="temperature">Temperature</option><option value="humidity">Humidity</option><option value="voltage">Voltage</option></select>
         <label>Logic:</label>
+        <select id="relay3Logic" onchange="updateRelayMode(3)"><option value="above">Above threshold</option><option value="below">Below threshold</option></select>
+        <label>Threshold:</label>
+        <input type="range" id="relay3Threshold" min="0" max="100" value="50" oninput="updateRelayMode(3)"><span id="relay3ThresholdVal">50</span>
+        <button id="btn3">Toggle</button>
+      </div>
+      <div class="relay-card" id="relay4Card">
+        <h2>Relay 4</h2>
+        <p>Status: <span id="status4">Loading...</span></p>
+        <label>Mode:</label>
+        <select id="relay4Mode" onchange="updateRelayMode(4)"><option value="manual">Manual</option><option value="auto">Auto</option></select>
+        <label>Control by:</label>
+        <select id="relay4Sensor" onchange="updateRelayMode(4)"><option value="temperature">Temperature</option><option value="humidity">Humidity</option><option value="voltage">Voltage</option></select>
+        <label>Logic:</label>
+        <select id="relay4Logic" onchange="updateRelayMode(4)"><option value="above">Above threshold</option><option value="below">Below threshold</option></select>
+        <label>Threshold:</label>
+        <input type="range" id="relay4Threshold" min="0" max="100" value="50" oninput="updateRelayMode(4)"><span id="relay4ThresholdVal">50</span>
+        <button id="btn4">Toggle</button>
+      </div>
+    </div>
+    <div class="relay-container">
+      <!-- Sensor Values -->
+      <div class="card"><h2>Temperature</h2><p><span id="tempVal">Loading...</span> °C</p><canvas id="tempChart"></canvas></div>
+      <div class="card"><h2>Humidity</h2><p><span id="humVal">Loading...</span> %</p><canvas id="humChart"></canvas></div>
+      <div class="card"><h2>Voltage</h2><p><span id="voltVal">Loading...</span> V</p><canvas id="voltChart"></canvas></div>
+    </div>
+    <button id="allOffBtn">All OFF</button>
+    <button id="logoutBtn">Logout</button>
+  </div>
+  <footer>Created by Tech StudyCell</footer>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
+  <script>
+    const firebaseConfig = { apiKey: "AIzaSyChsW3vee_Aq-vTgQY7f5swcCq7wDQo0eE", authDomain: "home-4fc70.firebaseapp.com", databaseURL: "https://home-4fc70-default-rtdb.firebaseio.com", projectId: "home-4fc70", storageBucket: "home-4fc70.firebasestorage.app", messagingSenderId: "331141707198", appId: "1:331141707198:web:f015ee7e05d39cabfdb5ef" };
+    firebase.initializeApp(firebaseConfig);
+    const allowedEmail = "starg8zr@yahoo.com"; const allowedPassword = "12345678";
+    const loginForm = document.getElementById("loginForm"), dashboard = document.getElementById("dashboard"), loginBtn = document.getElementById("loginBtn");
+
+    loginBtn.addEventListener("click", ()=>{
+      const email = document.getElementById("email").value.trim(), password = document.getElementById("password").value;
+      if(!email||!password){ alert("Please enter email and password."); return; }
+      if(email===allowedEmail&&password===allowedPassword){
+        firebase.auth().signInWithEmailAndPassword(email,password).then(()=>{
+          loginForm.style.display="none";
+          dashboard.style.display="block";
+          startRelayControl();
+        }).catch(e=>{alert("Firebase login failed: "+e.message);});
+      }else{alert("Invalid email or password.");}
+    });
+
+    function updateRelayMode(id){
+      const mode=document.getElementById(`relay${id}Mode`).value,
+            sensor=document.getElementById(`relay${id}Sensor`).value,
+            logic=document.getElementById(`relay${id}Logic`).value,
+            threshold=document.getElementById(`relay${id}Threshold`).value;
+      firebase.database().ref(`/modes/relay${id}`).set({mode,sensor,logic,threshold});
+      document.getElementById(`relay${id}ThresholdVal`).innerText = threshold;
+    }
+
+    function startRelayControl(){
+      const db=firebase.database();
+      const relays=[{id:1,path:"relay1"},{id:2,path:"relay2"},{id:3,path:"relay3"},{id:4,path:"relay4"}];
+      relays.forEach(r=>{
+        const statusText=document.getElementById(`status${r.id}`), toggleButton=document.getElementById(`btn${r.id}`), relayRef=db.ref("/"+r.path);
+        relayRef.on("value",snap=>{const state=snap.val(); statusText.innerText=state?"ON":"OFF"; toggleButton.style.backgroundColor=state?"green":"blue";});
+        toggleButton.onclick=()=>{relayRef.get().then(snap=>{relayRef.set(!snap.val());});};
+      });
+      document.getElementById("allOffBtn").onclick=()=>{relays.forEach(r=>{db.ref("/"+r.path).set(false);});};
+
+      // Chart setup
+      const tempCtx=document.getElementById("tempChart").getContext("2d"), humCtx=document.getElementById("humChart").getContext("2d"), voltCtx=document.getElementById("voltChart").getContext("2d");
+      function makeChart(ctx,label,color){return new Chart(ctx,{type:"line",data:{labels:[],datasets:[{label,data:[],borderColor:color,borderWidth:2,fill:false,tension:0.2}]},options:{responsive:true,animation:false}});}
+      const tempChart=makeChart(tempCtx,"Temperature (°C)","red"), humChart=makeChart(humCtx,"Humidity (%)","blue"), voltChart=makeChart(voltCtx,"Voltage (V)","green");
+      function updateChart(chart,value){const time=new Date().toLocaleTimeString(); chart.data.labels.push(time); chart.data.datasets[0].data.push(value); if(chart.data.labels.length>20){chart.data.labels.shift(); chart.data.datasets[0].data.shift();} chart.update();}
+
+      db.ref("/sensors/temperature").on("value",snap=>{const val=snap.val(); document.getElementById("tempVal").innerText=val+" °C"; updateChart(tempChart,val); checkRelays('temperature',val);});
+      db.ref("/sensors/humidity").on("value",snap=>{const val=snap.val(); document.getElementById("humVal").innerText=val+" %"; updateChart(humChart,val); checkRelays('humidity',val);});
+      db.ref("/sensors/voltage").on("value",snap=>{const val=snap.val(); document.getElementById("voltVal").innerText=val+" V"; updateChart(voltChart,val); checkRelays('voltage',val);});
+
+      function checkRelays(sensorType,value){
+        for(let i=1;i<=4;i++){
+          db.ref(`/modes/relay${i}`).get().then(snap=>{
+            const {mode,sensor,logic,threshold} = snap.val() || {};
+            if(mode==='auto' && sensor===sensorType){
+              const relayRef=db.ref(`/relay${i}`);
+              if((logic==='above' && value>=threshold) || (logic==='below' && value<=threshold)) relayRef.set(true);
+              else relayRef.set(false);
+            }
+          });
+        }
+      }
+    }
+
+    document.getElementById("logoutBtn").onclick=()=>{
+      firebase.auth().signOut().then(()=>{
+        dashboard.style.display="none";
+        loginForm.style.display="block";
+        document.getElementById("email").value="";
+        document.getElementById("password").value="";
+      }).catch(e=>{alert("Logout failed: "+e.message);});
+    };
+  </script>
+</body>
+</html>
